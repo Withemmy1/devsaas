@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import User from '../models/User.js';
+import prisma from '../lib/prisma.js';
 
 export const auth = async (req, res, next) => {
   try {
@@ -10,25 +10,32 @@ export const auth = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findOne({
-      _id: decoded.userId,
-      'sessions.token': token,
-      'sessions.isRevoked': false
+    
+    const session = await prisma.session.findFirst({
+      where: {
+        token,
+        isRevoked: false,
+        user: {
+          id: decoded.userId
+        }
+      },
+      include: {
+        user: true
+      }
     });
 
-    if (!user) {
+    if (!session) {
       throw new Error();
     }
 
     // Update last active timestamp
-    const session = user.sessions.find(s => s.token === token);
-    if (session) {
-      session.lastActive = new Date();
-      await user.save();
-    }
+    await prisma.session.update({
+      where: { id: session.id },
+      data: { lastActive: new Date() }
+    });
 
     req.token = token;
-    req.user = user;
+    req.user = session.user;
     next();
   } catch (error) {
     res.status(401).json({ message: 'Please authenticate' });
